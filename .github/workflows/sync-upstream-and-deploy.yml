@@ -1,29 +1,31 @@
 # 上游同步 + 自动部署
 #
 # 用法：
-#   1. 把这个文件放到你的 fork 仓库的 .github/workflows/ 目录
+#   1. 把这个文件放到仓库的 .github/workflows/ 目录
 #   2. 在仓库 Settings → Secrets and variables → Actions 里配置：
 #        Secrets:
-#          CLOUDFLARE_API_TOKEN    （Cloudflare 后台生成，权限：Workers 脚本:编辑 + Pages:编辑 + 账户设置:读取）
-#          CLOUDFLARE_ACCOUNT_ID   （你的 Account ID）
-#        Variables（非敏感，可公开）:
+#          CLOUDFLARE_API_TOKEN    （Workers 脚本:编辑 + Pages:编辑 + 账户设置:读取）
+#          CLOUDFLARE_ACCOUNT_ID
+#        Variables:
 #          UPSTREAM_REPO      例如 amclubs/am-cf-tunnel
 #          UPSTREAM_BRANCH    默认 main
-#          DEPLOY_TARGET      workers 或 pages
-#          PAGES_PROJECT      仅 DEPLOY_TARGET=pages 时需要，例如 yisi
-#          WRANGLER_CONFIG    仅需要指定配置文件时填，例如 wrangler.toml
-#   3. 之后它会：每天自动检查一次上游 → 有更新就同步并部署；也可以在 Actions 页面手动点 "Run workflow"
+#          DEPLOY_TARGET      workers | pages | pages-git
+#          PAGES_PROJECT      仅 DEPLOY_TARGET=pages 时需要
+#          WRANGLER_CONFIG    仅需要指定 wrangler 配置文件时填
+#          BUILD_CMD          可选的构建命令，例如 pnpm install && pnpm run build
+#   3. 之后每天自动检查一次上游；也可以在 Actions 页面手动点 "Run workflow"
 #
-# 说明：
-#   - 同步采用 fast-forward 合并。因为 fork 是纯镜像（没有本地改动），不会产生冲突。
-#   - 如果你在 fork 里改过代码，请把 SYNC_MODE 改成 merge-manual，让脚本遇到冲突时直接失败报警，
-#     而不是覆盖你的改动。
+# 同步策略（两级，自动选择）：
+#   a) 优先 fast-forward 合并（fork 是纯镜像时）
+#   b) 失败则退回「按上游文件覆盖」——适用于和上游历史无关的独立仓库，
+#      以及你在仓库里额外加了配置文件的场景（额外文件不会被删掉）
+#   两种方式都不会把上游自带的 .github/workflows 带进来，避免和本流程打架。
 
 name: 同步上游并部署
 
 on:
   schedule:
-    # 每天 UTC 03:17（北京时间 11:17）检查一次。改这里可以调整频率。
+    # 每天 UTC 03:17（北京时间 11:17）。改这里调整频率。
     - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
@@ -40,18 +42,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ---------- 第一步：把上游的新提交同步到你的 fork ----------
   sync:
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.check.outputs.changed }}
       upstream_sha: ${{ steps.check.outputs.upstream_sha }}
+      mode: ${{ steps.sync.outputs.mode }}
     steps:
-      - name: 检出 fork
+      - name: 检出仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 配置 git
         run: |
@@ -76,41 +77,68 @@ jobs:
           echo "upstream_sha=${UP_SHA}" >> "$GITHUB_OUTPUT"
           echo "上游 ${UPSTREAM_REPO}@${UPSTREAM_BRANCH} = ${UP_SHA:0:8}"
 
-          if git merge-base --is-ancestor "upstream/${UPSTREAM_BRANCH}" HEAD; then
-            echo "✅ 已经是最新，无需同步"
+          if git diff --quiet HEAD "upstream/${UPSTREAM_BRANCH}" -- . ':(exclude).github/workflows'; then
+            echo "✅ 代码已经和上游一致，无需同步"
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            BEHIND=$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}")
-            echo "⬆️ 落后上游 ${BEHIND} 个提交，开始同步"
+            echo "⬆️ 检测到上游有更新"
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: 同步上游代码
+        id: sync
         if: steps.check.outputs.changed == 'true'
         env:
           UPSTREAM_BRANCH: ${{ vars.UPSTREAM_BRANCH || 'main' }}
           TARGET_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git merge --ff-only "upstream/${UPSTREAM_BRANCH}" \
-            || { echo "::error::无法 fast-forward，说明 fork 里有本地改动，请手动处理"; exit 1; }
-          git push origin "HEAD:${TARGET_BRANCH}"
-          echo "已推送到 ${TARGET_BRANCH}"
 
-      - name: 记录部署信息
+          if git merge --ff-only "upstream/${UPSTREAM_BRANCH}" 2>/dev/null; then
+            echo "同步方式：fast-forward"
+            echo "mode=ff" >> "$GITHUB_OUTPUT"
+          else
+            echo "同步方式：按上游文件覆盖（历史无关，或存在本地附加文件）"
+            echo "mode=overlay" >> "$GITHUB_OUTPUT"
+            git checkout "upstream/${UPSTREAM_BRANCH}" -- .
+
+            # 恢复本仓库自己的 CI，丢掉上游带进来的其它 workflow，避免互相打架
+            KEEP=".github/workflows/sync-upstream-and-deploy.yml"
+            for f in $(git diff --cached --name-only --diff-filter=A -- .github/workflows || true); do
+              [ "$f" = "$KEEP" ] && continue
+              git rm --cached -q "$f" 2>/dev/null || true
+              rm -f "$f"
+            done
+            if [ -f "$KEEP" ]; then
+              git add "$KEEP"
+            fi
+          fi
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有需要提交的改动"
+          else
+            git commit -m "chore: 同步上游 ${UPSTREAM_BRANCH} ($(date -u '+%Y-%m-%d'))"
+            git push origin "HEAD:${TARGET_BRANCH}"
+            echo "已推送到 ${TARGET_BRANCH}"
+          fi
+
+      - name: 记录同步信息
         if: steps.check.outputs.changed == 'true'
         run: |
-          echo "### 已同步上游" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 上游提交：\`${{ steps.check.outputs.upstream_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 时间：$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### 已同步上游"
+            echo "- 上游提交：\`${{ steps.check.outputs.upstream_sha }}\`"
+            echo "- 同步方式：\`${{ steps.sync.outputs.mode }}\`"
+            echo "- 时间：$(date -u '+%Y-%m-%d %H:%M UTC')"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 第二步：有更新（或被强制）时部署 ----------
   deploy:
     needs: sync
     if: needs.sync.outputs.changed == 'true' || inputs.force_deploy
     runs-on: ubuntu-latest
     steps:
-      - name: 检出（含刚同步的最新代码）
+      - name: 检出最新代码
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -120,7 +148,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: 执行构建（如果配置了 BUILD_CMD）
+        if: vars.BUILD_CMD != ''
+        run: ${{ vars.BUILD_CMD }}
+
       - name: 安装 wrangler
+        if: vars.DEPLOY_TARGET == 'workers' || vars.DEPLOY_TARGET == 'pages'
         run: npm install -g wrangler@latest
 
       - name: 部署到 Cloudflare Workers
@@ -149,7 +182,6 @@ jobs:
             echo "::error::DEPLOY_TARGET=pages 时必须配置仓库变量 PAGES_PROJECT"
             exit 1
           fi
-          # Pages 的 _worker.js 需要放在一个目录里一起上传
           rm -rf .deploy && mkdir -p .deploy
           cp _worker.js .deploy/ 2>/dev/null || cp worker.js .deploy/
           wrangler pages deploy .deploy --project-name "${PAGES_PROJECT}" --commit-dirty=true
@@ -157,11 +189,12 @@ jobs:
       - name: 交给 Pages Git 集成自动构建
         if: vars.DEPLOY_TARGET == 'pages-git'
         run: |
-          echo "无需手动部署：上一步的 push 已经触发 Cloudflare Pages 的 Git 集成自动构建。" >> "$GITHUB_STEP_SUMMARY"
-          echo "（适用于仓库已经和 Pages 项目做过 Git 集成的情况，例如 amsubjiediandingyue）" >> "$GITHUB_STEP_SUMMARY"
+          echo "无需手动部署：上一步的 push 已触发 Cloudflare Pages 的 Git 集成自动构建。" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 部署结果
         run: |
-          echo "### 部署完成 ✅" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 目标：\`${{ vars.DEPLOY_TARGET }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 上游提交：\`${{ needs.sync.outputs.upstream_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### 部署完成 ✅"
+            echo "- 目标：\`${{ vars.DEPLOY_TARGET }}\`"
+            echo "- 上游提交：\`${{ needs.sync.outputs.upstream_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
