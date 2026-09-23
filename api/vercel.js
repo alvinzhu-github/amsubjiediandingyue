@@ -13,6 +13,9 @@ export default async function handler(req, res) {
 
         const text = result && typeof result.text === 'function' ? await result.text() : result || '';
         const status = result?.status || 200;
+        if (result?.headers && typeof result.headers.forEach === 'function') {
+            result.headers.forEach((value, key) => res.setHeader(key, value));
+        }
         res.status(status).send(text);
     } catch (err) {
         console.error('Vercel Error:', err);

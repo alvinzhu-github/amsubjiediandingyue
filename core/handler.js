@@ -1,3 +1,7 @@
+import { appendToKV, loadFromKV, saveToKV } from './kv.js';
+import { getRuntime } from './runtime.js';
+import { handleCloudflareProxyRequest } from './cloudflare/proxy.js';
+
 /**
  * YouTube  : https://youtube.com/@am_clubs
  * Telegram : https://t.me/am_clubs
@@ -5,15 +9,11 @@
  * BLog     : https://amclubss.com
  */
 
-let id = base64Decode('ZWM4NzJkOGYtNzJiMC00YTA0LWI2MTItMDMyN2Q4NWUxOGVk');
-let uuid;
-let host;
+const defaultId = base64Decode('ZWM4NzJkOGYtNzJiMC00YTA0LWI2MTItMDMyN2Q4NWUxOGVk');
 
-let s5 = '';
-let socks5Enable = false;
-let parsedSocks5 = {};
+const defaultSocks5 = '';
 
-let ipLocal = [
+const defaultIpLocal = [
     'wto.org:443#youtube.com/@am_clubs 数字套利(视频教程)',
     'icook.hk#t.me/am_clubs TG群(加入解锁更多节点)',
     'time.is#github.com/amclubs GitHub仓库(关注查看新功能)',
@@ -21,19 +21,15 @@ let ipLocal = [
 ];
 
 const defaultIpUrlTxt = base64Decode('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2FtY2x1YnMvYW0tY2YtdHVubmVsL21haW4vZXhhbXBsZS9pcHY0LnR4dA==');
-let randomNum = 15;
-let ipUrlTxt = [defaultIpUrlTxt];
-let ipUrlCsv = [];
-let noTLS = false;
+const defaultRandomNum = 15;
+const defaultIpUrlTxtList = [defaultIpUrlTxt];
+const defaultIpUrlCsv = [];
+const defaultNoTLS = false;
 let sl = 5;
 
-let fakeUserId;
-let fakeHostName;
-
-let isBase64 = true;
-let subConfig = base64Decode('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2FtY2x1YnMvQUNMNFNTUi9tYWluL0NsYXNoL2NvbmZpZy9BQ0w0U1NSX09ubGluZV9GdWxsX011bHRpTW9kZS5pbmk=');
-let subConverter = base64Decode('dXJsLnYxLm1r');
-let subProtocol = 'https';
+const defaultSubConfig = base64Decode('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2FtY2x1YnMvQUNMNFNTUi9tYWluL0NsYXNoL2NvbmZpZy9BQ0w0U1NSX09ubGluZV9GdWxsX011bHRpTW9kZS5pbmk=');
+const defaultSubConverter = base64Decode('dXJsLnYxLm1r');
+const defaultSubProtocol = 'https';
 
 let subUpdateTime = 6;
 let timestamp = 4102329600000;
@@ -42,11 +38,7 @@ let download = Math.floor(Math.random() * 1099511627776);
 let upload = download;
 let expire = Math.floor(timestamp / 1000);
 
-let nat64 = false;
-let nat64Prefix;
-let nat64Prefixs = [
-    '2602:fc59:b0:64::'
-];
+const defaultNat64 = false;
 
 const protTypeBase64 = 'ZG14bGMzTT0=';
 const protTypeBase64Tro = 'ZEhKdmFtRnU=';
@@ -59,14 +51,21 @@ let tgName = base64Decode('aHR0cHM6Ly90Lm1lL2FtX2NsdWJz');
 let ghName = base64Decode('aHR0cHM6Ly9naXRodWIuY29tL2FtY2x1YnMvYW0tY2YtdHVubmVs');
 let bName = base64Decode('aHR0cHM6Ly9hbWNsdWJzcy5jb20=');
 let pName = '5pWw5a2X5aWX5Yip';
-let hostRemark;
-let enableLog = false;
-let enableOpen = true;
+const defaultHostRemark = undefined;
+const defaultEnableLog = false;
+const defaultEnableOpen = true;
 
 const DEFAULT_TARGET_COUNT = 512;
-let nipHost = base64Decode('bmlwLmxmcmVlLm9yZw==');
-let extraIp;
-let extraIpProxy;
+const defaultNipHost = base64Decode('bmlwLmxmcmVlLm9yZw==');
+const defaultExtraIp = undefined;
+const defaultExtraIpProxy = undefined;
+const ADMIN_CONFIG_KEY = 'config/v1';
+const ADMIN_CONFIG_FIELDS = new Set([
+    'UUID', 'HOST', 'SOCKS5', 'IP_URL', 'PROXYIP', 'NAT64', 'NAT64_PREFIX',
+    'HOST_REMARK', 'PROT_TYPE', 'RANDOW_NUM', 'SUB_CONFIG', 'SUB_CONVERTER',
+    'NO_TLS', 'NIP_HOST', 'EXTRA_IP', 'EXTRA_IP_PROXY', 'ENABLE_OPEN', 'SS_METHOD',
+    'CARRIER_IP_URL_CT', 'CARRIER_IP_URL_CU', 'CARRIER_IP_URL_CMCC', 'CARRIER_IP_URL_CF'
+]);
 
 // export default {
 //     async fetch(request, env) {
@@ -82,40 +81,44 @@ let extraIpProxy;
 // };
 
 // ======= 主逻辑函数（共用） =======
-export async function mainHandler({ req, url, headers, res, env }) {
-    const { ENABLE_LOG, ID, UUID, HOST, SOCKS5, IP_URL, PROXYIP, NAT64, NAT64_PREFIX, HOST_REMARK, PROT_TYPE, RANDOW_NUM, SUB_CONFIG, SUB_CONVERTER, NO_TLS, NIP_HOST, EXTRA_IP, EXTRA_IP_PROXY, ENABLE_OPEN } = env || {};
+export async function mainHandler({ req, url, headers, res, env, platform = {} }) {
+    const { ENABLE_LOG, ID, UUID, HOST, SOCKS5, IP_URL, PROXYIP, NAT64, NAT64_PREFIX, HOST_REMARK, PROT_TYPE, RANDOW_NUM, SUB_CONFIG, SUB_CONVERTER, NO_TLS, NIP_HOST, EXTRA_IP, EXTRA_IP_PROXY, ENABLE_OPEN, SS_METHOD, CARRIER_IP_URL_CT, CARRIER_IP_URL_CU, CARRIER_IP_URL_CMCC, CARRIER_IP_URL_CF } = env || {};
 
     const rawHost = headers.get('host') || headers.get('Host') || 'localhost';
     const userAgent = headers.get('User-Agent') || '';
-    log(`[mainHandler]-->rawHost: ${rawHost}`);
-    const rawEnableLog = url.searchParams.get('ENABLE_LOG') || getEnvVar('ENABLE_LOG', env) || enableLog;
-    enableLog = parseBool(rawEnableLog, enableLog);
-    const rawEnableOpen = getEnvVar('ENABLE_OPEN', env) || enableOpen;
-    enableOpen = parseBool(rawEnableOpen, enableOpen);
-    noTLS = url.searchParams.get('NO_TLS') || getEnvVar('NO_TLS', env) || noTLS;
+    const storedConfig = await loadAdminConfig(env, res);
+    const enableLog = parseBool(url.searchParams.get('ENABLE_LOG') || getEnvVar('ENABLE_LOG', env) || ENABLE_LOG, defaultEnableLog);
+    const requestLog = (...args) => {
+        if (enableLog) console.log(...args);
+    };
+    const enableOpen = parseBool(getEnvVar('ENABLE_OPEN', env) || ENABLE_OPEN || storedConfig.ENABLE_OPEN, defaultEnableOpen);
+    const noTLS = url.searchParams.get('NO_TLS') || getEnvVar('NO_TLS', env) || NO_TLS || storedConfig.NO_TLS || defaultNoTLS;
+    const id = getEnvVar('ID', env) || ID || defaultId;
+    const uuid = url.searchParams.get('UUID') || getEnvVar('UUID', env) || UUID || storedConfig.UUID;
+    const configuredHost = url.searchParams.get('HOST') || getEnvVar('HOST', env) || HOST || storedConfig.HOST;
+    const host = normalizeHostList(configuredHost, url.hostname || rawHost);
+    const s5 = url.searchParams.get('SOCKS5') || getEnvVar('SOCKS5', env) || SOCKS5 || storedConfig.SOCKS5 || defaultSocks5;
+    const parsedSocks5 = await parseSocks5FromUrl(s5, url);
+    const socks5Enable = Boolean(parsedSocks5?.hostname);
+    requestLog(`[mainHandler]-->rawHost: ${rawHost}`);
+    requestLog(`[mainHandler]-->id: ${id} uuid: ${uuid} host: ${host}`);
 
-    id = getEnvVar('ID', env) || ID || id;
-    uuid = url.searchParams.get('UUID') || getEnvVar('UUID', env) || UUID;
-    host = url.searchParams.get('HOST') || getEnvVar('HOST', env) || HOST;
-    log(`[mainHandler]-->id: ${id} uuid: ${uuid} host: ${host}`);
-
-    s5 = url.searchParams.get('SOCKS5') || getEnvVar('SOCKS5', env) || SOCKS5 || s5;
-    parsedSocks5 = await parseSocks5FromUrl(s5, url);
-    if (parsedSocks5) socks5Enable = true;
-
-    let ip_url = url.searchParams.get('IP_URL') || getEnvVar('IP_URL', env) || IP_URL;
+    let ipLocal = [...defaultIpLocal];
+    let ipUrlTxt = [...defaultIpUrlTxtList];
+    let ipUrlCsv = [...defaultIpUrlCsv];
+    let ip_url = url.searchParams.get('IP_URL') || getEnvVar('IP_URL', env) || IP_URL || storedConfig.IP_URL;
     if (ip_url) {
         const result = await parseIpUrl(ip_url);
         ipUrlCsv = result.ipUrlCsvResult;
         ipUrlTxt = result.ipUrlTxtResult;
     }
-    const existing = await loadFromKV(env, decodeBase64Utf8('Y2Zfbm9ybWFsX2lw'));
+    const existing = await loadFromKV(env, decodeBase64Utf8('Y2Zfbm9ybWFsX2lw'), res);
     if (existing && existing.trim().length > 0) {
         ipLocal = existing.split('\n').map(v => v.trim()).filter(v => v);
     }
 
     let proxyIPsAll = [];
-    const proxyIPUrl = url.searchParams.get('PROXYIP') || getEnvVar('PROXYIP', env) || PROXYIP;
+    const proxyIPUrl = url.searchParams.get('PROXYIP') || getEnvVar('PROXYIP', env) || PROXYIP || storedConfig.PROXYIP;
     if (proxyIPUrl) {
         if (httpPattern.test(proxyIPUrl)) {
             const proxyIpTxt = await addIpText(proxyIPUrl);
@@ -132,15 +135,16 @@ export async function mainHandler({ req, url, headers, res, env }) {
             proxyIPsAll.push(...proxyIPs);
         }
     }
-    const existingProxy = await loadFromKV(env, decodeBase64Utf8('Y2ZfcHJveHlfaXA='));
+    const existingProxy = await loadFromKV(env, decodeBase64Utf8('Y2ZfcHJveHlfaXA='), res);
     if (existingProxy && existingProxy.trim().length > 0) {
         const fromKv = existingProxy.split('\n').map(v => v.trim()).filter(v => v).map(v => v.split('#')[0]).map(v => v.trim()).filter(v => v);
         proxyIPsAll.push(...fromKv);
     }
     proxyIPsAll = [...new Set(proxyIPsAll)];
 
-    nat64 = url.searchParams.get('NAT64') || getEnvVar('NAT64', env) || NAT64 || nat64;
-    const nat64PrefixUrl = url.searchParams.get('NAT64_PREFIX') || getEnvVar('NAT64_PREFIX', env);
+    const nat64 = url.searchParams.get('NAT64') || getEnvVar('NAT64', env) || NAT64 || storedConfig.NAT64 || defaultNat64;
+    let nat64Prefix;
+    const nat64PrefixUrl = url.searchParams.get('NAT64_PREFIX') || getEnvVar('NAT64_PREFIX', env) || storedConfig.NAT64_PREFIX;
     if (nat64PrefixUrl) {
         if (httpPattern.test(nat64PrefixUrl)) {
             const proxyIpTxt = await addIpText(nat64PrefixUrl);
@@ -153,45 +157,77 @@ export async function mainHandler({ req, url, headers, res, env }) {
             const uniqueIpTxt = [...new Set([...ipUrlTxtAndCsv.txt, ...ipUrlTxtAndCsv.csv])];
             nat64Prefix = uniqueIpTxt[Math.floor(Math.random() * uniqueIpTxt.length)];
         } else {
-            nat64Prefixs = await addIpText(nat64PrefixUrl);
-            nat64Prefix = nat64Prefixs[Math.floor(Math.random() * nat64Prefixs.length)];
+            const nat64Prefixes = await addIpText(nat64PrefixUrl);
+            nat64Prefix = nat64Prefixes[Math.floor(Math.random() * nat64Prefixes.length)];
         }
     }
 
-    hostRemark = url.searchParams.get('HOST_REMARK') || getEnvVar('HOST_REMARK', env) || hostRemark;
-    let protType = url.searchParams.get('PROT_TYPE') || getEnvVar('PROT_TYPE', env);
+    const hostRemark = url.searchParams.get('HOST_REMARK') || getEnvVar('HOST_REMARK', env) || HOST_REMARK || storedConfig.HOST_REMARK || defaultHostRemark;
+    let protType = url.searchParams.get('PROT_TYPE') || getEnvVar('PROT_TYPE', env) || storedConfig.PROT_TYPE;
     if (protType) protType = protType.toLowerCase();
-    randomNum = url.searchParams.get('RANDOW_NUM') || getEnvVar('RANDOW_NUM', env) || randomNum;
-    log(`[handler]-->randomNum: ${randomNum}`);
+    const randomNum = Number(url.searchParams.get('RANDOW_NUM') || getEnvVar('RANDOW_NUM', env) || RANDOW_NUM || storedConfig.RANDOW_NUM || defaultRandomNum);
+    requestLog(`[handler]-->randomNum: ${randomNum}`);
 
-    subConfig = getEnvVar('SUB_CONFIG', env) || SUB_CONFIG || subConfig;
-    subConverter = getEnvVar('SUB_CONVERTER', env) || SUB_CONVERTER || subConverter;
-    let subProtocol, subConverterWithoutProtocol;
+    const subConfig = getEnvVar('SUB_CONFIG', env) || SUB_CONFIG || storedConfig.SUB_CONFIG || defaultSubConfig;
+    let subConverter = getEnvVar('SUB_CONVERTER', env) || SUB_CONVERTER || storedConfig.SUB_CONVERTER || defaultSubConverter;
+    let subProtocol = defaultSubProtocol;
+    let subConverterWithoutProtocol;
     if (subConverter.startsWith("http://") || subConverter.startsWith("https://")) {
         [subProtocol, subConverterWithoutProtocol] = subConverter.split("://");
     } else {
-        [subProtocol, subConverterWithoutProtocol] = [undefined, subConverter];
+        subConverterWithoutProtocol = subConverter;
     }
     subConverter = subConverterWithoutProtocol;
-    nipHost = getEnvVar('NIP_HOST', env) || nipHost;
-    extraIp = getEnvVar('EXTRA_IP', env) || extraIp;
-    extraIpProxy = getEnvVar('EXTRA_IP_PROXY', env) || extraIpProxy;
+    const nipHost = getEnvVar('NIP_HOST', env) || NIP_HOST || storedConfig.NIP_HOST || defaultNipHost;
+    const extraIp = getEnvVar('EXTRA_IP', env) || EXTRA_IP || storedConfig.EXTRA_IP || defaultExtraIp;
+    const extraIpProxy = getEnvVar('EXTRA_IP_PROXY', env) || EXTRA_IP_PROXY || storedConfig.EXTRA_IP_PROXY || defaultExtraIpProxy;
+    const ssMethod = url.searchParams.get('SS_METHOD') || getEnvVar('SS_METHOD', env) || SS_METHOD || storedConfig.SS_METHOD || 'aes-128-gcm';
+    const carrierIpUrls = {
+        ct: getEnvVar('CARRIER_IP_URL_CT', env) || CARRIER_IP_URL_CT || storedConfig.CARRIER_IP_URL_CT,
+        cu: getEnvVar('CARRIER_IP_URL_CU', env) || CARRIER_IP_URL_CU || storedConfig.CARRIER_IP_URL_CU,
+        cmcc: getEnvVar('CARRIER_IP_URL_CMCC', env) || CARRIER_IP_URL_CMCC || storedConfig.CARRIER_IP_URL_CMCC,
+        cf: getEnvVar('CARRIER_IP_URL_CF', env) || CARRIER_IP_URL_CF || storedConfig.CARRIER_IP_URL_CF
+    };
 
-    fakeUserId = await getFakeUserId(uuid);
-    fakeHostName = getFakeHostName(rawHost, noTLS);
-    log(`[handler]-->fakeUserId: ${fakeUserId}`);
+    const fakeUserId = await getFakeUserId(uuid);
+    requestLog(`[handler]-->fakeUserId: ${fakeUserId}`);
+    const requestContext = {
+        enableLog, enableOpen, id, uuid, host, s5, socks5Enable, parsedSocks5,
+        ipLocal, ipUrlTxt, ipUrlCsv, noTLS, randomNum, fakeUserId,
+        subConfig, subConverter, subProtocol, nat64, nat64Prefix, hostRemark,
+        nipHost, extraIp, extraIpProxy, ssMethod, carrierIpUrls, storedConfig, req,
+        runtime: getRuntime(env, res), log: requestLog
+    };
+
+    const proxyResponse = await handleCloudflareProxyRequest({
+        request: req,
+        url,
+        allowedUuids: uuid,
+        runtime: requestContext.runtime,
+        connect: platform.connect
+    });
+    if (proxyResponse) return proxyResponse;
 
     // ---------------- 路由 ----------------
     if (url.pathname === `/setting` && !enableOpen) {
-        const html = await getSettingHtml(rawHost);
+        const html = await getSettingHtml(rawHost, requestContext);
         return sendResponse(html, userAgent, res);
     }
     if (url.pathname === "/login") {
-        const result = await login(req, env, res);
+        const result = await login(req, env, res, requestContext);
         return result;
     }
+    if (url.pathname === '/logout' || url.pathname === '/admin/logout') {
+        return logout(req, res);
+    }
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+        if (!await isAdminAuthenticated(req, requestContext)) {
+            return redirectResponse('/login', res);
+        }
+        return handleAdminRoute({ req, url, res, env, context: requestContext });
+    }
     if (url.pathname === `/${id}/setting`) {
-        const html = await getSettingHtml(rawHost);
+        const html = await getSettingHtml(rawHost, requestContext);
         return sendResponse(html, userAgent, res);
     }
     if (url.pathname === `/${id}`) {
@@ -199,29 +235,30 @@ export async function mainHandler({ req, url, headers, res, env }) {
         if (proxyIPsAll.length > 0) {
             paddr = proxyIPsAll[Math.floor(Math.random() * proxyIPsAll.length)];
         }
-        const html = await getConfig(rawHost, uuid, host, paddr, parsedSocks5, userAgent, url, protType, nat64, hostRemark);
-        return sendResponse(html, userAgent, res);
+        const html = await getConfig(rawHost, uuid, host, paddr, parsedSocks5, userAgent, url, protType, nat64, hostRemark, requestContext);
+        return sendResponse(html, userAgent, res, 200, getSubscriptionResponseOptions(userAgent, url, rawHost));
     }
     if (url.pathname === `/${fakeUserId}`) {
         let paddr;
         if (proxyIPsAll.length > 0) {
             paddr = proxyIPsAll[Math.floor(Math.random() * proxyIPsAll.length)];
         }
-        const html = await getConfig(rawHost, uuid, host, paddr, parsedSocks5, 'CF-FAKE-UA', url, protType, nat64, hostRemark);
-        return sendResponse(html, 'CF-FAKE-UA', res);
+        const html = await getConfig(rawHost, uuid, host, paddr, parsedSocks5, 'CF-FAKE-UA', url, protType, nat64, hostRemark, requestContext);
+        return sendResponse(html, 'CF-FAKE-UA', res, 200, getSubscriptionResponseOptions('CF-FAKE-UA', url, rawHost));
     }
     // ✅
     if (url.pathname === `/${id}/ips`) {
-        const html = await htmlPage();
+        const html = await htmlPage(requestContext);
         return sendResponse(html, userAgent, res);
     }
     if (url.pathname === '/ipsFetch') {
-        const ipSource = url.searchParams.get('ipSource');
+        let ipSource = url.searchParams.get('ipSource');
+        if (ipSource === 'auto') ipSource = detectCarrier(req);
         const port = url.searchParams.get('port') || '443';
-        nipHost = getNipHost(nipHost);
-        log(`[handler]-->nipHost: ${nipHost}`);
-        let ipData = await loadIpSource(ipSource, port);
-        log('ipData type:', typeof ipData, ipData);
+        const resolvedNipHost = await getNipHost(nipHost);
+        requestContext.log(`[handler]-->nipHost: ${resolvedNipHost}`);
+        let ipData = await loadIpSource(ipSource, port, requestContext);
+        requestContext.log('ipData type:', typeof ipData, ipData);
         if (ipData instanceof Response) {
             ipData = await ipData.text();
         }
@@ -239,7 +276,7 @@ export async function mainHandler({ req, url, headers, res, env }) {
             const body = await readJsonBody(req);
             log("[handler]--> save body: ", body);
             const { key, items } = body;
-            await saveToKV(env, key, items);
+            await saveToKV(env, key, items, res);
             return sendResponse(JSON.stringify({ ok: true }), userAgent, res);
         } catch (e) {
             return sendResponse(JSON.stringify({ ok: false, error: e.message || String(e) }), userAgent, res, 500);
@@ -249,7 +286,7 @@ export async function mainHandler({ req, url, headers, res, env }) {
         try {
             const body = await readJsonBody(req);
             const { key, items } = body;
-            await appendToKV(env, key, items);
+            await appendToKV(env, key, items, res);
             return sendResponse(JSON.stringify({ ok: true }), userAgent, res);
         } catch (e) {
             return sendResponse(JSON.stringify({ ok: false, error: e.message || String(e) }), userAgent, res, 500);
@@ -266,7 +303,7 @@ export async function mainHandler({ req, url, headers, res, env }) {
             if (!body.key) {
                 return sendResponse(JSON.stringify({ ok: false, error: "Missing key" }), userAgent, res, 400);
             }
-            const value = await loadFromKV(env, body.key);
+            const value = await loadFromKV(env, body.key, res);
             if (!value) {
                 return sendResponse(JSON.stringify({ ok: false, error: "KV key not found" }), userAgent, res, 404);
             }
@@ -275,7 +312,7 @@ export async function mainHandler({ req, url, headers, res, env }) {
             return sendResponse(JSON.stringify({ ok: false, error: err.message }), userAgent, res, 500);
         }
     }
-    return login(req, env, res);
+    return login(req, env, res, requestContext);
 }
 
 /** --------------------- main ------------------------------ */
@@ -287,18 +324,6 @@ function getEnvVar(key, env) {
         return process.env[key];
     }
     return undefined;
-}
-
-function isCloudflareRuntime(env) {
-    const isCFCache = typeof caches !== "undefined" && caches.default;
-    const isCFEnv = env && Object.prototype.toString.call(env) === "[object Object]";
-    const isNotNode = typeof process === "undefined" || !process.release || process.release.name !== "node";
-    if (isCFCache && isCFEnv && isNotNode) {
-        log("[isCloudflareRuntime]--> ✅ Cloudflare Runtime");
-        return true;
-    }
-    log("[isCloudflareRuntime]--> ❌ Vercel/Node Runtime");
-    return false;
 }
 
 function isCloudflareRequest(req) {
@@ -335,7 +360,7 @@ function parseBool(val, defaultVal = false) {
 
 /** ---------------------Tools------------------------------ */
 function log(...args) {
-    if (!enableLog) {
+    if (!defaultEnableLog) {
         return;
     }
     let prefix = '';
@@ -402,15 +427,17 @@ function getHeader(req, name) {
     }
 }
 
-function sendResponse(content, userAgent = '', res = null, status = 200) {
+function sendResponse(content, userAgent = '', res = null, status = 200, options = {}) {
     if (!status || typeof status !== 'number') status = 200;
 
     const isMozilla = userAgent.toLowerCase().includes('mozilla');
     const headers = {
-        "Content-Type": isMozilla ? "text/html;charset=utf-8" : "text/plain;charset=utf-8",
+        "Content-Type": options.contentType || (isMozilla ? "text/html;charset=utf-8" : "text/plain;charset=utf-8"),
         "Profile-Update-Interval": `${subUpdateTime}`,
         "Subscription-Userinfo": `upload=${upload}; download=${download}; total=${total}; expire=${expire}`,
+        "Cache-Control": "no-store"
     };
+    if (options.profileUrl) headers["Profile-Web-Page-Url"] = options.profileUrl;
 
     if (!isMozilla) {
         const fileNameAscii = encodeURIComponent(decodeBase64Utf8(fileName));
@@ -434,6 +461,21 @@ function sendResponse(content, userAgent = '', res = null, status = 200) {
     }
 
     return content;
+}
+
+function getSubscriptionResponseOptions(userAgent, url, rawHost) {
+    const target = detectSubscriptionTarget(userAgent, url);
+    const contentTypes = {
+        clash: 'application/x-yaml;charset=utf-8',
+        singbox: 'application/json;charset=utf-8',
+        surge: 'text/plain;charset=utf-8',
+        quanx: 'text/plain;charset=utf-8',
+        loon: 'text/plain;charset=utf-8'
+    };
+    return {
+        contentType: contentTypes[target],
+        profileUrl: `https://${String(rawHost).replace(/^https?:\/\//, '')}`
+    };
 }
 
 function base64Encode(input) {
@@ -555,6 +597,18 @@ function getRandomItems(arr, count) {
     return shuffled.slice(0, count);
 }
 
+export function normalizeHostList(value, fallbackHost) {
+    const hosts = String(value || '')
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean)
+        .map(item => item.replace(/^https?:\/\//i, '').split('/')[0])
+        .map(item => item.replace(/:\d+$/, ''))
+        .filter(Boolean);
+    if (hosts.length) return hosts.join(',');
+    return String(fallbackHost || 'localhost').replace(/^https?:\/\//i, '').split('/')[0].replace(/:\d+$/, '');
+}
+
 async function getFakeUserId(userId) {
     const date = new Date().toISOString().split('T')[0];
     const rawString = `${userId}-${date}`;
@@ -565,15 +619,6 @@ async function getFakeUserId(userId) {
     return `${hashArray.substring(0, 8)}-${hashArray.substring(8, 12)}-${hashArray.substring(12, 16)}-${hashArray.substring(16, 20)}-${hashArray.substring(20, 32)}`;
 }
 
-function getFakeHostName(host, noTLS) {
-    if (host.includes(".pages.dev")) {
-        return `${fakeHostName}.pages.dev`;
-    } else if (host.includes(".workers.dev") || host.includes("notls") || noTLS === 'true') {
-        return `${fakeHostName}.workers.dev`;
-    }
-    return `${fakeHostName}.xyz`;
-}
-
 function isValidBase64(str) {
     if (!str || typeof str !== 'string') return false;
     const s = str.trim().replace(/\n/g, '');
@@ -582,7 +627,7 @@ function isValidBase64(str) {
     return base64Regex.test(s);
 }
 
-function revertFakeInfo(content, userId, hostName) {
+function revertFakeInfo(content, fakeUserId, userId) {
     log(`revertFakeInfo--> content length: ${content?.length}`);
     let shouldDecode = isValidBase64(content);
     if (shouldDecode) {
@@ -593,7 +638,7 @@ function revertFakeInfo(content, userId, hostName) {
             shouldDecode = false;
         }
     }
-    content = content.replace(new RegExp(fakeUserId, 'g'), userId).replace(new RegExp(fakeHostName, 'g'), hostName);
+    content = content.replace(new RegExp(fakeUserId, 'g'), userId);
     if (shouldDecode) {
         content = base64Encode(content);
     }
@@ -663,13 +708,13 @@ async function parseIpUrl(ip_url) {
 }
 
 /** ---------------------Get data------------------------------ */
-let subParams = ['sub', 'base64', 'b64', 'clash', 'singbox', 'sb'];
+const subParams = ['sub', 'base64', 'b64', 'clash', 'singbox', 'sb', 'surge', 'quanx', 'loon', 'target'];
 let portSet_http = new Set([80, 8080, 8880, 2052, 2086, 2095, 2082]);
 let portSet_https = new Set([443, 8443, 2053, 2096, 2087, 2083]);
 
-async function getConfig(rawHost, userIds, hosts, proxyIP, parsedSocks5, userAgent, _url, protTypes, nat64, hostRemark) {
-    log(`------------getConfig------------------`);
-    log(`userIds: ${userIds} \n hosts: ${hosts} \n proxyIP: ${proxyIP} \n userAgent: ${userAgent} \n _url: ${_url} \n protTypes: ${protTypes} \n nat64: ${nat64} \n hostRemark: ${hostRemark} `);
+async function getConfig(rawHost, userIds, hosts, proxyIP, parsedSocks5, userAgent, _url, protTypes, nat64, hostRemark, context) {
+    context.log(`------------getConfig------------------`);
+    context.log(`userIds: ${userIds} \n hosts: ${hosts} \n proxyIP: ${proxyIP} \n userAgent: ${userAgent} \n _url: ${_url} \n protTypes: ${protTypes} \n nat64: ${nat64} \n hostRemark: ${hostRemark} `);
 
     userAgent = userAgent.toLowerCase();
 
@@ -710,7 +755,7 @@ async function getConfig(rawHost, userIds, hosts, proxyIP, parsedSocks5, userAge
         const host = hostList[i];
         const userId = userIdList[i];
         let protType = protTypeList.length ? protTypeList[i] : null;
-        log(`Processing host: ${host} with userId: ${userId}`);
+        context.log(`Processing host: ${host} with userId: ${userId}`);
 
         let port = 443;
         if (host.includes('.workers.dev')) {
@@ -720,29 +765,30 @@ async function getConfig(rawHost, userIds, hosts, proxyIP, parsedSocks5, userAge
             if (!protType) {
                 protType = doubleBase64Decode(protTypeBase64);
             }
-            const [v2, clash] = getConfigLink(userId, host, host, port, host, proxyIP, protType, nat64);
-            return getHtmlRes(rawHost, proxyIP, socks5Enable, parsedSocks5, host, v2, clash);
+            const [v2, clash] = getConfigLink(userId, host, host, port, host, proxyIP, protType, nat64, context);
+            return getHtmlRes(rawHost, proxyIP, context.socks5Enable, parsedSocks5, host, v2, clash, context);
         }
 
-        const ipUrlTxtAndCsv = await getIpUrlTxtAndCsv(noTLS, ipUrlTxt, ipUrlCsv, randomNum);
-        log(`txt: ${ipUrlTxtAndCsv.txt} \n csv: ${ipUrlTxtAndCsv.csv}`);
-        let content = await getConfigContent(rawHost, userAgent, _url, host, fakeHostName, fakeUserId, noTLS, ipUrlTxtAndCsv.txt, ipUrlTxtAndCsv.csv, protType, nat64, hostRemark, proxyIP, false);
-        content = _url.pathname === `/${fakeUserId}` ? content : revertFakeInfo(content, userId, host);
+        const ipUrlTxtAndCsv = await getIpUrlTxtAndCsv(context.noTLS, context.ipUrlTxt, context.ipUrlCsv, context.randomNum);
+        context.log(`txt: ${ipUrlTxtAndCsv.txt} \n csv: ${ipUrlTxtAndCsv.csv}`);
+        let content = await getConfigContent(rawHost, userAgent, _url, host, context.fakeUserId, context.noTLS, ipUrlTxtAndCsv.txt, ipUrlTxtAndCsv.csv, protType, nat64, hostRemark, proxyIP, false, context);
+        content = _url.pathname === `/${context.fakeUserId}` ? content : revertFakeInfo(content, context.fakeUserId, userId);
 
         allPlain.push(content.trim());
     }
     const merged = allPlain.join('\n');
+    const subscriptionTarget = detectSubscriptionTarget(userAgent, _url);
     if (isHiddify(userAgent)) {
         return base64Encode(merged);
     }
-    if (!isHiddify(userAgent) && !isClashCondition(userAgent, _url) && !isSingboxCondition(userAgent, _url)) {
+    if (!subscriptionTarget) {
         return base64Encode(merged);
     }
 
     return merged;
 }
 
-function getHtmlRes(rawHost, proxyIP, socks5Enable, parsedSocks5, host, v2, clash) {
+function getHtmlRes(rawHost, proxyIP, socks5Enable, parsedSocks5, host, v2, clash, context) {
     const subRemark = `IP_LOCAL/IP_URL`;
     let proxyIPRemark = `PROXYIP: ${proxyIP}`;
     if (socks5Enable) {
@@ -752,10 +798,10 @@ function getHtmlRes(rawHost, proxyIP, socks5Enable, parsedSocks5, host, v2, clas
     if (!proxyIP && !socks5Enable) {
         remark = `您的订阅节点由设置变量 ${subRemark} 提供, 当前没设置反代, 推荐您设置PROXYIP变量或SOCKS5变量或订阅连接带proxyIP`;
     }
-    return getConfigHtml(rawHost, remark, v2, clash);
+    return getConfigHtml(rawHost, remark, v2, clash, context);
 }
 
-function getConfigLink(uuid, host, address, port, remarks, proxyip, protType, nat64) {
+function getConfigLink(uuid, host, address, port, remarks, proxyip, protType, nat64, context) {
     const ep = 'none';
     let pathParm = `&PROT_TYPE=${protType}`;
     if (proxyip) {
@@ -764,11 +810,11 @@ function getConfigLink(uuid, host, address, port, remarks, proxyip, protType, na
     if (nat64) {
         pathParm = pathParm + `&P64=${nat64}`;
     }
-    if (nat64Prefix) {
-        pathParm = pathParm + `&P64PREFIX=${nat64Prefix}`;
+    if (context.nat64Prefix) {
+        pathParm = pathParm + `&P64PREFIX=${context.nat64Prefix}`;
     }
-    if (s5) {
-        pathParm = pathParm + `&S5=${s5}`;
+    if (context.s5) {
+        pathParm = pathParm + `&S5=${context.s5}`;
     }
     let path = `/?ed=2560` + pathParm;
     const fp = 'randomized';
@@ -778,9 +824,33 @@ function getConfigLink(uuid, host, address, port, remarks, proxyip, protType, na
         remarks += ' 请用绑定自定义域名访问再订阅！';
     }
 
+    if (protType === 'ss') {
+        const ssTls = portSet_http.has(parseInt(port)) ? ['', false] : tls;
+        return [
+            getSsLinkConfig({ method: context.ssMethod, password: uuid, host, address, port, remarks, path, tls: ssTls }),
+            getSsClashConfig({ method: context.ssMethod, password: uuid, host, address, port, remarks, path, tls: ssTls })
+        ];
+    }
+
     const v2 = getv2LinkConfig({ protType, host, uuid, address, port, remarks, ep, path, fp, tls });
     const clash = getCLinkConfig(protType, host, address, port, uuid, path, tls, fp);
     return [v2, clash];
+}
+
+export function getSsLinkConfig({ method, password, host, address, port, remarks, path, tls }) {
+    const credentials = base64Encode(`${method}:${password}`).replace(/=+$/, '');
+    const pluginOptions = [
+        'v2ray-plugin',
+        'mode=websocket',
+        `host=${host}`,
+        `path=${path}`,
+        ...(tls[1] ? ['tls'] : [])
+    ].join(';');
+    return `ss://${credentials}@${address}:${port}?plugin=${encodeURIComponent(pluginOptions)}#${encodeURIComponent(remarks)}`;
+}
+
+function getSsClashConfig({ method, password, host, address, port, remarks, path, tls }) {
+    return `- {type: ss, name: ${JSON.stringify(remarks)}, server: ${address}, port: ${port}, cipher: ${method}, password: ${JSON.stringify(password)}, plugin: v2ray-plugin, plugin-opts: {mode: websocket, host: ${host}, path: ${JSON.stringify(path)}, tls: ${tls[1]}}}`;
 }
 
 function getv2LinkConfig({ protType, host, uuid, address, port, remarks, ep, path, fp, tls }) {
@@ -813,21 +883,21 @@ function getCLinkConfig(protType, host, address, port, uuid, path, tls, fp) {
     return `- {type: ${xDe(t, k)}, name: ${host}, server: ${xDe(a, k)}, port: ${xDe(p, k)}, password: ${xDe(u, k)}, network: ${network}, tls: ${tls[1]}, udp: false, sni: ${host}, client-fingerprint: ${fp}, skip-cert-verify: true,  ws-opts: {path: ${path}, headers: {Host: ${host}}}}`;
 }
 
-async function getConfigContent(rawHost, userAgent, _url, host, fakeHostName, fakeUserId, noTLS, ipUrlTxt, ipUrlCsv, protType, nat64, hostRemark, proxyIP, needEncode = true) {
+async function getConfigContent(rawHost, userAgent, _url, host, fakeUserId, noTLS, ipUrlTxt, ipUrlCsv, protType, nat64, hostRemark, proxyIP, needEncode = true, context) {
     log(`------------getConfigContent------------------`);
     const uniqueIpTxt = [...new Set([...ipUrlTxt, ...ipUrlCsv])];
     let responseBody;
     log(`[getConfigContent]---> protType: ${protType}`);
     if (!protType) {
         protType = doubleBase64Decode(protTypeBase64);
-        const responseBody1 = splitNodeData(uniqueIpTxt, noTLS, fakeHostName, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP);
-        const responseBodyTop = splitNodeData(ipLocal, noTLS, fakeHostName, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP);
+        const responseBody1 = splitNodeData(uniqueIpTxt, noTLS, host, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP, context);
+        const responseBodyTop = splitNodeData(context.ipLocal, noTLS, host, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP, context);
         protType = doubleBase64Decode(protTypeBase64Tro);
-        const responseBody2 = splitNodeData(uniqueIpTxt, noTLS, fakeHostName, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP);
+        const responseBody2 = splitNodeData(uniqueIpTxt, noTLS, host, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP, context);
         responseBody = [responseBodyTop, responseBody1, responseBody2].join('\n');
     } else {
-        const responseBodyTop = splitNodeData(ipLocal, noTLS, fakeHostName, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP);
-        responseBody = splitNodeData(uniqueIpTxt, noTLS, fakeHostName, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP);
+        const responseBodyTop = splitNodeData(context.ipLocal, noTLS, host, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP, context);
+        responseBody = splitNodeData(uniqueIpTxt, noTLS, host, fakeUserId, userAgent, protType, nat64, hostRemark, proxyIP, context);
         responseBody = [responseBodyTop, responseBody].join('\n');
     }
     if (needEncode) {
@@ -839,17 +909,13 @@ async function getConfigContent(rawHost, userAgent, _url, host, fakeHostName, fa
         let url = `https://${safeHost}/${fakeUserId}`;
         log(`[getConfigContent]---> url: ${url}`);
 
+        const subscriptionTarget = detectSubscriptionTarget(userAgent, _url);
         if (isHiddify(userAgent)) {
             log(`[getConfigContent]---> isHiddify`);
             return responseBody;
-        } else if (isClashCondition(userAgent, _url)) {
-            log(`[getConfigContent]---> isClashCondition`);
-            isBase64 = false;
-            url = createSubConverterUrl('clash', url, subConfig, subConverter, subProtocol);
-        } else if (isSingboxCondition(userAgent, _url)) {
-            log(`[getConfigContent]---> isSingboxCondition`);
-            isBase64 = false;
-            url = createSubConverterUrl('singbox', url, subConfig, subConverter, subProtocol);
+        } else if (subscriptionTarget) {
+            log(`[getConfigContent]---> subscriptionTarget: ${subscriptionTarget}`);
+            url = createSubConverterUrl(getConverterTarget(subscriptionTarget), url, context.subConfig, context.subConverter, context.subProtocol);
         } else {
             return responseBody;
         }
@@ -862,6 +928,7 @@ async function getConfigContent(rawHost, userAgent, _url, host, fakeHostName, fa
                 }
             });
             responseBody = await response.text();
+            responseBody = patchSubscriptionContent(subscriptionTarget, responseBody);
         } catch (err) {
             errorLogs(`[getConfigContent][fetch error] ${err.message}`);
         }
@@ -878,15 +945,35 @@ function isHiddify(userAgent) {
     return userAgent.includes('hiddify');
 }
 
-function isClashCondition(userAgent, _url) {
-    return (userAgent.includes('clash') && !userAgent.includes('nekobox')) || (_url.searchParams.has('clash') && !userAgent.includes('subConverter'));
+export function detectSubscriptionTarget(userAgent, url) {
+    const ua = String(userAgent || '').toLowerCase();
+    const requestedTarget = String(url?.searchParams?.get('target') || '').toLowerCase();
+    if (['clash', 'singbox', 'surge', 'quanx', 'loon'].includes(requestedTarget)) return requestedTarget;
+    if (url?.searchParams?.has('clash') || (ua.includes('clash') && !ua.includes('nekobox'))) return 'clash';
+    if (url?.searchParams?.has('singbox') || url?.searchParams?.has('sb') || ua.includes('sing-box') || ua.includes('singbox')) return 'singbox';
+    if (url?.searchParams?.has('surge') || ua.includes('surge')) return 'surge';
+    if (url?.searchParams?.has('quanx') || ua.includes('quantumult')) return 'quanx';
+    if (url?.searchParams?.has('loon') || ua.includes('loon')) return 'loon';
+    return null;
 }
 
-function isSingboxCondition(userAgent, _url) {
-    return userAgent.includes('sing-box') || userAgent.includes('singbox') || ((_url.searchParams.has('singbox') || _url.searchParams.has('sb')) && !userAgent.includes('subConverter'));
+function getConverterTarget(target) {
+    return target === 'surge' ? 'surge&ver=4' : target;
 }
 
-function splitNodeData(uniqueIpTxt, noTLS, host, uuid, userAgent, protType, nat64, hostRemark, proxyIP) {
+export function patchSubscriptionContent(target, content) {
+    const normalized = String(content || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    if (target === 'singbox') {
+        try {
+            return JSON.stringify(JSON.parse(normalized), null, 2);
+        } catch {
+            return normalized;
+        }
+    }
+    return normalized.endsWith('\n') ? normalized : `${normalized}\n`;
+}
+
+function splitNodeData(uniqueIpTxt, noTLS, host, uuid, userAgent, protType, nat64, hostRemark, proxyIP, context) {
     // log(`splitNodeData----> \n host: ${host} \n uuid: ${uuid} \n protType: ${protType} \n hostRemark: ${hostRemark}`);
 
     const regionMap = {
@@ -957,7 +1044,7 @@ function splitNodeData(uniqueIpTxt, noTLS, host, uuid, userAgent, protType, nat6
             return null;
         }
 
-        const [v2, clash] = getConfigLink(uuid, host, address, port, remarks, proxyip, protType, nat64);
+        const [v2, clash] = getConfigLink(uuid, host, address, port, remarks, proxyip, protType, nat64, context);
         return v2;
     }).filter(Boolean).join('\n');
 
@@ -1028,8 +1115,8 @@ async function getIpUrlTxt(urlTxts, num) {
     log(`getIpUrlTxt-->ipTxt: ${ipTxt} \n `);
     let newIpTxt = await addIpText(ipTxt);
     const hasAcCom = urlTxts.includes(defaultIpUrlTxt);
-    log(`getIpUrlTxt-->hasAcCom: ${hasAcCom} randomNum:  ${randomNum}`);
-    if (hasAcCom && Number.isInteger(randomNum) && randomNum > 0) {
+    log(`getIpUrlTxt-->hasAcCom: ${hasAcCom} randomNum:  ${num}`);
+    if (hasAcCom && Number.isInteger(num) && num > 0) {
         newIpTxt = getRandomItems(newIpTxt, num);
     }
 
@@ -1130,9 +1217,9 @@ async function getIpUrlCsv(urlCsvs, tls) {
 }
 
 const meta = decodeBase64Utf8('PG1ldGEgbmFtZT0nZGVzY3JpcHRpb24nIGNoYXJzZXQ9J1VURi04JyBjb250ZW50PSdUaGlzIGlzIGEgcHJvamVjdCB0byBnZW5lcmF0ZSBmcmVlIHhodHRwL3ZsZXNzL3Ryb2phbiBub2Rlcy4gRm9yIG1vcmUgaW5mb3JtYXRpb24sIHBsZWFzZSBzdWJzY3JpYmUgeW91dHViZSjmlbDlrZflpZfliKkpIGh0dHBzOi8veW91dHViZS5jb20vQGFtX2NsdWJzIGFuZCBmb2xsb3cgR2l0SHViIGh0dHBzOi8vZ2l0aHViLmNvbS9hbWNsdWJzIGFuZCBmb2xsb3cgdGVsZWdyYW0gaHR0cHM6Ly90Lm1lL0FNX0NMVUJTICBhbmQgZm9sbG93ICBCbG9nIGh0dHBzOi8vYW1jbHVic3MuY29tJyAvPg==');
-function getConfigHtml(host, remark, v2, clash) {
+function getConfigHtml(host, remark, v2, clash, context) {
     log(`------------getConfigHtml------------------`);
-    log(`id: ${id} \n host: ${host} \n remark: ${remark} \n v2: ${v2} \n clash: ${clash} `);
+    log(`id: ${context.id} \n host: ${host} \n remark: ${remark} \n v2: ${v2} \n clash: ${clash} `);
     const title = decodeBase64Utf8(fileName);
     const fullTitle = title + '-订阅器';
 
@@ -1230,13 +1317,14 @@ function getConfigHtml(host, remark, v2, clash) {
                 <a href="${tgName}" target="_blank">💬 Telegram</a>
                 <a href="${ghName}" target="_blank">📂 GitHub</a>
                 <a href="${bName}" target="_blank">🌐 Blog</a>
-                <a href="https://${host}/${id}/ips" rel="noopener">⚡ 在线优选IP</a>
-                <a href="https://${host}/${id}/setting" rel="noopener">⚙️ 自定义设置</a>
+                <a href="https://${host}/${context.id}/ips" rel="noopener">⚡ 在线优选IP</a>
+                <a href="https://${host}/${context.id}/setting" rel="noopener">⚙️ 自定义设置</a>
+                <a href="/admin" rel="noopener">🛡️ 后台管理</a>
             </div>
         </div>
   `;
 
-    const httpAddr = `https://${host}/${id}`;
+    const httpAddr = `https://${host}/${context.id}`;
     const output = cleanLines(`
         订阅地址支持 Base64、clash-meta、sing-box、Quantumult X、小火箭、surge 等订阅工具
         #########################################################
@@ -1251,6 +1339,12 @@ function getConfigHtml(host, remark, v2, clash) {
             #########################################################
             singbox订阅地址:${httpAddr}?singbox<button onclick='copyToClipboard("${httpAddr}?singbox")'><i class="fa fa-clipboard"></i>📋点击复制</button>
             #########################################################
+            Surge订阅地址:${httpAddr}?surge<button onclick='copyToClipboard("${httpAddr}?surge")'><i class="fa fa-clipboard"></i>📋点击复制</button>
+            #########################################################
+            Quantumult X订阅地址:${httpAddr}?quanx<button onclick='copyToClipboard("${httpAddr}?quanx")'><i class="fa fa-clipboard"></i>📋点击复制</button>
+            #########################################################
+            Loon订阅地址:${httpAddr}?loon<button onclick='copyToClipboard("${httpAddr}?loon")'><i class="fa fa-clipboard"></i>📋点击复制</button>
+            #########################################################
             v2
             ${v2}
             #########################################################
@@ -1260,7 +1354,7 @@ function getConfigHtml(host, remark, v2, clash) {
             </pre>
         </div>
     `);
-    const openSection = enableOpen ? `
+    const openSection = context.enableOpen ? `
         <pre>${output}</pre>
         <div style="text-align:center; margin-top:10px;">
             <button id="toggleBtn" onclick="toggleMore()">📂 展开查看更多</button>
@@ -1316,7 +1410,7 @@ function cleanLines(str) {
 
 
 /** -------------------Home page-------------------------------- */
-async function getSettingHtml(host) {
+async function getSettingHtml(host, context) {
     const title = decodeBase64Utf8(fileName);
     const fullTitle = title + '-自定义设置';
 
@@ -1604,7 +1698,11 @@ async function getSettingHtml(host) {
             <option value="">默认</option>
             <option value="vless">vless</option>
             <option value="trojan">trojan</option>
+            <option value="ss">shadowsocks</option>
         </select>
+
+        <label>SS_METHOD</label>
+        <input type="text" id="SS_METHOD" name="SS_METHOD" placeholder="可选：Shadowsocks 加密方式，默认 aes-128-gcm" />
 
         <label>HOST_REMARK</label>
         <input type="text" id="HOST_REMARK" name="HOST_REMARK" placeholder="可选：默认是节点IP，所有节点别名" />
@@ -1615,7 +1713,7 @@ async function getSettingHtml(host) {
 
     <script>
         function goHome() {
-            window.location.href = '/${id}';
+            window.location.href = '/${context.id}';
         }
 
         function saveSettings() {
@@ -1634,12 +1732,12 @@ async function getSettingHtml(host) {
         if (hasError) return; 
 
         const params = new URLSearchParams();
-        ['UUID','HOST','IP_URL','PROXYIP','SOCKS5','SUB_CONFIG','SUB_CONVERTER','HOST_REMARK','PROT_TYPE','NAT64','NAT64_PREFIX'].forEach(k => {
+        ['UUID','HOST','IP_URL','PROXYIP','SOCKS5','SUB_CONFIG','SUB_CONVERTER','HOST_REMARK','PROT_TYPE','SS_METHOD','NAT64','NAT64_PREFIX'].forEach(k => {
             const val = document.getElementById(k).value.trim();
             if (val) params.append(k, val);
         });
 
-        const link = \`https://${host}/${id}?sub&\` + params.toString();
+        const link = \`https://${host}/${context.id}?sub&\` + params.toString();
         const linkDiv = document.getElementById('generatedLink');
         const linkText = document.getElementById('linkText');
         linkText.textContent = link;
@@ -1666,7 +1764,164 @@ async function getSettingHtml(host) {
     `;
 }
 
-async function login(req, env, res = null) {
+async function loadAdminConfig(env, res = null) {
+    const value = await loadFromKV(env, ADMIN_CONFIG_KEY, res);
+    if (!value) return {};
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function filterAdminConfig(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        throw new Error('Config must be a JSON object');
+    }
+    const config = Object.fromEntries(Object.entries(input)
+        .filter(([key]) => ADMIN_CONFIG_FIELDS.has(key))
+        .map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]));
+    if (JSON.stringify(config).length > 65536) throw new Error('Config is too large');
+    return config;
+}
+
+function jsonResponse(data, res = null, status = 200) {
+    const body = JSON.stringify(data, null, 2);
+    const headers = { 'Content-Type': 'application/json;charset=utf-8', 'Cache-Control': 'no-store' };
+    if (res) {
+        Object.entries(headers).forEach(([key, value]) => res.setHeader(key, value));
+        return res.status(status).send(body);
+    }
+    return new Response(body, { status, headers });
+}
+
+function isSameOriginRequest(req, url) {
+    const origin = getHeader(req, 'origin');
+    return !origin || origin === url.origin;
+}
+
+async function handleAdminRoute({ req, url, res, env, context }) {
+    const method = String(req.method || 'GET').toUpperCase();
+    if (url.pathname === '/admin') {
+        if (method !== 'GET') return jsonResponse({ ok: false, error: 'Method Not Allowed' }, res, 405);
+        return sendResponse(renderAdminPage(context), getHeader(req, 'user-agent'), res, 200, { contentType: 'text/html;charset=utf-8' });
+    }
+    if (url.pathname === '/admin/status') {
+        if (method !== 'GET') return jsonResponse({ ok: false, error: 'Method Not Allowed' }, res, 405);
+        return jsonResponse({ ok: true, runtime: context.runtime, kv: Boolean(getKvBindingForStatus(env)), version: 1 }, res);
+    }
+    if (url.pathname === '/admin/config.json') {
+        if (method === 'GET') return jsonResponse({ ok: true, config: context.storedConfig }, res);
+        if (method !== 'POST' && method !== 'PUT') return jsonResponse({ ok: false, error: 'Method Not Allowed' }, res, 405);
+        if (!isSameOriginRequest(req, url)) return jsonResponse({ ok: false, error: 'Origin not allowed' }, res, 403);
+        try {
+            const config = filterAdminConfig(await readJsonBody(req));
+            await saveToKV(env, ADMIN_CONFIG_KEY, JSON.stringify(config), res);
+            return jsonResponse({ ok: true, config }, res);
+        } catch (error) {
+            return jsonResponse({ ok: false, error: error.message }, res, 400);
+        }
+    }
+    const ipRoute = url.pathname.match(/^\/admin\/ip\/(normal|proxy)$/);
+    if (ipRoute) {
+        const type = ipRoute[1];
+        const versionedKey = `ip/${type}`;
+        const legacyKey = type === 'normal' ? 'cf_normal_ip' : 'cf_proxy_ip';
+        if (method === 'GET') {
+            const value = await loadFromKV(env, versionedKey, res) ?? await loadFromKV(env, legacyKey, res) ?? '';
+            return jsonResponse({ ok: true, value }, res);
+        }
+        if (method !== 'POST' && method !== 'PUT') return jsonResponse({ ok: false, error: 'Method Not Allowed' }, res, 405);
+        if (!isSameOriginRequest(req, url)) return jsonResponse({ ok: false, error: 'Origin not allowed' }, res, 403);
+        try {
+            const body = await readJsonBody(req);
+            const value = String(body.items ?? body.value ?? '').trim();
+            if (value.length > 1048576) throw new Error('IP list is too large');
+            await Promise.all([
+                saveToKV(env, versionedKey, value, res),
+                saveToKV(env, legacyKey, value, res)
+            ]);
+            return jsonResponse({ ok: true, value }, res);
+        } catch (error) {
+            return jsonResponse({ ok: false, error: error.message }, res, 400);
+        }
+    }
+    return jsonResponse({ ok: false, error: 'Not Found' }, res, 404);
+}
+
+function getKvBindingForStatus(env) {
+    const binding = env?.ips || env?.KV;
+    return binding && typeof binding.get === 'function' && typeof binding.put === 'function' ? binding : null;
+}
+
+function renderAdminPage(context) {
+    const configJson = JSON.stringify(context.storedConfig, null, 2).replace(/</g, '\\u003c');
+    return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>订阅器后台管理</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:920px;margin:30px auto;padding:0 16px;background:#0d1117;color:#e6edf3}a{color:#58a6ff}textarea{width:100%;min-height:420px;box-sizing:border-box;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:14px}button{margin-top:12px;padding:10px 18px;border:0;border-radius:7px;background:#238636;color:white;cursor:pointer}.secondary{background:#30363d}.status{margin-left:12px}</style>
+</head>
+<body>
+<h1>订阅器后台管理</h1>
+<p><a href="/${context.id}">返回订阅首页</a> · <a href="/${context.id}/ips">优选 IP</a> · <a href="/logout">退出</a></p>
+<p>配置保存在版本化 KV 键 <code>${ADMIN_CONFIG_KEY}</code>。环境变量和 URL 参数仍拥有更高优先级。</p>
+<textarea id="config">${configJson}</textarea>
+<div><button id="save">保存配置</button><button class="secondary" id="reload">重新加载</button><span class="status" id="status"></span></div>
+<script>
+const config=document.getElementById('config');const status=document.getElementById('status');
+document.getElementById('save').onclick=async()=>{try{const value=JSON.parse(config.value);const response=await fetch('/admin/config.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});const result=await response.json();if(!response.ok)throw new Error(result.error||'保存失败');config.value=JSON.stringify(result.config,null,2);status.textContent='✅ 已保存';}catch(error){status.textContent='❌ '+error.message;}};
+document.getElementById('reload').onclick=async()=>{const result=await fetch('/admin/config.json').then(response=>response.json());config.value=JSON.stringify(result.config||{},null,2);status.textContent='已重新加载';};
+</script>
+</body>
+</html>`;
+}
+
+function getCookie(req, name) {
+    const cookieHeader = getHeader(req, 'cookie');
+    const cookie = cookieHeader.split(';').map(value => value.trim()).find(value => value.startsWith(`${name}=`));
+    return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : '';
+}
+
+async function createAdminSession(context, userAgent) {
+    const value = `${context.id}|${userAgent || ''}|am-cf-tunnel-sub`;
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function isAdminAuthenticated(req, context) {
+    const actual = getCookie(req, 'admin_session');
+    if (!actual) return false;
+    const expected = await createAdminSession(context, getHeader(req, 'user-agent'));
+    if (actual.length !== expected.length) return false;
+    let difference = 0;
+    for (let index = 0; index < actual.length; index++) {
+        difference |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
+    }
+    return difference === 0;
+}
+
+function redirectResponse(location, res = null, cookie = null) {
+    if (res) {
+        if (cookie) res.setHeader('Set-Cookie', cookie);
+        res.writeHead(302, { Location: location });
+        res.end();
+        return { status: 302, text: async () => '' };
+    }
+    const headers = { Location: location };
+    if (cookie) headers['Set-Cookie'] = cookie;
+    return new Response('', { status: 302, headers });
+}
+
+function logout(req, res = null) {
+    return redirectResponse('/login', res, 'admin_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict');
+}
+
+async function login(req, env, res = null, context) {
     const method = req.method || (req instanceof Request ? req.method : 'GET');
 
     const renderLoginPage = (heading, status = 200) => {
@@ -1713,13 +1968,15 @@ async function login(req, env, res = null) {
         const inputPassword = params.get("password")?.trim();
         log(`[LOGIN] → POST 输入密码: "${inputPassword}"`);
 
-        if (inputPassword === id) {
+        if (inputPassword === context.id) {
             log(`[LOGIN] → 密码正确`);
-            if (!uuid || !host) {
+            if (!context.uuid || !context.host) {
                 return renderLoginPage(`❌ UUID或HOST变量未设置`, 400);
             }
-            log(`[LOGIN] → 跳转到 id=${id}`);
-            return redirectToId(id, req, res);
+            log(`[LOGIN] → 跳转到 id=${context.id}`);
+            const token = await createAdminSession(context, getHeader(req, 'user-agent'));
+            const cookie = `admin_session=${token}; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Strict`;
+            return redirectToId(context.id, req, res, context.runtime, cookie);
         } else {
             log(`[LOGIN] → 密码错误`);
             return renderLoginPage('❌ 密码错误，请重新尝试', 403);
@@ -1728,18 +1985,14 @@ async function login(req, env, res = null) {
     return renderLoginPage('Method Not Allowed', 405);
 }
 
-async function redirectToId(id, req, res = null) {
+async function redirectToId(id, req, res = null, runtime = 'unknown', cookie = null) {
     if (!id) id = 'default';
-
-    const envType = (typeof process !== 'undefined' && process.release?.name === 'node') ? 'Node/Vercel' :
-        (typeof WebSocketPair !== 'undefined' && typeof addEventListener === 'function') ? 'Cloudflare Worker' :
-            'Unknown';
-
-    log(`[redirectToId] → id: ${id}, env: ${envType}, req.url: ${req.url}`);
+    log(`[redirectToId] → id: ${id}, env: ${runtime}, req.url: ${req.url}`);
 
     // Node / Vercel
     if (res) {
         log(`[redirectToId] → Node/Vercel 重定向到 /${id}`);
+        if (cookie) res.setHeader('Set-Cookie', cookie);
         res.writeHead(302, { Location: `/${id}` });
         res.end();
         return { status: 302, text: async () => '' }; // 返回对象，防止 mainHandler crash
@@ -1748,7 +2001,9 @@ async function redirectToId(id, req, res = null) {
     // Edge / CF Worker
     const fullUrl = new URL(req.url, `https://${req.headers.get('host') || 'localhost'}`);
     log(`[redirectToId] → CF Worker 重定向到 ${fullUrl.origin}/${id}`);
-    return Response.redirect(`${fullUrl.origin}/${id}`, 302);
+    const headers = { Location: `${fullUrl.origin}/${id}` };
+    if (cookie) headers['Set-Cookie'] = cookie;
+    return new Response('', { status: 302, headers });
 }
 
 function renderPage({ base64Title, suffix = '', heading, bodyContent, ytName, tgName, ghName, bName }) {
@@ -1912,8 +2167,20 @@ function intToIp(int) {
     ].join('.');
 }
 
-let basePadd = '\u0068\u0074\u0074\u0070\u0073\u003a\u002f\u002f\u0072\u0061\u0077\u002e\u0067\u0069\u0074\u0068\u0075\u0062\u0075\u0073\u0065\u0072\u0063\u006f\u006e\u0074\u0065\u006e\u0074\u002e\u0063\u006f\u006d\u002f\u0061\u006d\u0063\u006c\u0075\u0062\u0073\u002f\u0061\u006d\u002d\u0063\u0066\u002d\u0074\u0075\u006e\u006e\u0065\u006c\u002f\u006d\u0061\u0069\u006e\u002f\u0065\u0078\u0061\u006d\u0070\u006c\u0065\u002f\u0070\u0072\u006f\u0078\u0079\u0069\u0070\u005f\u0061\u006d\u002e\u0074\u0078\u0074';
-async function loadIpSource(ipSource, targetPort) {
+const defaultProxyIpSource = '\u0068\u0074\u0074\u0070\u0073\u003a\u002f\u002f\u0072\u0061\u0077\u002e\u0067\u0069\u0074\u0068\u0075\u0062\u0075\u0073\u0065\u0072\u0063\u006f\u006e\u0074\u0065\u006e\u0074\u002e\u0063\u006f\u006d\u002f\u0061\u006d\u0063\u006c\u0075\u0062\u0073\u002f\u0061\u006d\u002d\u0063\u0066\u002d\u0074\u0075\u006e\u006e\u0065\u006c\u002f\u006d\u0061\u0069\u006e\u002f\u0065\u0078\u0061\u006d\u0070\u006c\u0065\u002f\u0070\u0072\u006f\u0078\u0079\u0069\u0070\u005f\u0061\u006d\u002e\u0074\u0078\u0074';
+
+export function detectCarrier(request) {
+    const cf = request?.cf || {};
+    if (String(cf.country || '').toUpperCase() !== 'CN') return 'cf';
+    const asn = String(cf.asn || '');
+    const organization = String(cf.asOrganization || '').toLowerCase();
+    if (['4134', '4809', '4811', '4812', '4815'].includes(asn) || /chinanet|china telecom|cn2/.test(organization)) return 'ct';
+    if (['4837', '4814', '9929', '17623', '17816'].includes(asn) || /china unicom|china169|cucc|netcom/.test(organization)) return 'cu';
+    if (['9808', '24400', '56040', '56041', '56044'].includes(asn) || /china mobile|cmcc|cmnet|cmi/.test(organization)) return 'cmcc';
+    return 'cf';
+}
+
+async function loadIpSource(ipSource, targetPort, context) {
     async function fetchAsnPrefixes(asn) {
         log(`fetchAsnPrefixes-->asn: `, asn);
         const ipverseUrl = `\u0068\u0074\u0074\u0070\u0073\u003a\u002f\u002f\u0072\u0061\u0077\u002e\u0067\u0069\u0074\u0068\u0075\u0062\u0075\u0073\u0065\u0072\u0063\u006f\u006e\u0074\u0065\u006e\u0074\u002e\u0063\u006f\u006d\u002f\u0069\u0070\u0076\u0065\u0072\u0073\u0065\u002f\u0061\u0073\u006e\u002d\u0069\u0070\u002f\u006d\u0061\u0073\u0074\u0065\u0072\u002f\u0061\u0073\u002f${asn}\u002f\u0069\u0070\u0076\u0034\u002d\u0061\u0067\u0067\u0072\u0065\u0067\u0061\u0074\u0065\u0064\u002e\u0074\u0078\u0074`;
@@ -1998,13 +2265,19 @@ async function loadIpSource(ipSource, targetPort) {
         const cfText = await fetchTextOrDefault('https://www.cloudflare.com/ips-v4/', '');
         return sampleFromCidrs(cfText, DEFAULT_TARGET_COUNT);
     }
+    if (['ct', 'cu', 'cmcc', 'cf'].includes(ipSource)) {
+        const sourceUrl = context.carrierIpUrls[ipSource] || 'https://www.cloudflare.com/ips-v4/';
+        const sourceText = await fetchTextOrDefault(sourceUrl, '');
+        return sampleFromCidrs(sourceText, DEFAULT_TARGET_COUNT);
+    }
     if (ipSource === 'proxyip' || ipSource === 'extraip' || ipSource === 'extraipProxy') {
+        let sourceUrl = defaultProxyIpSource;
         if (ipSource === 'extraip') {
-            basePadd = extraIp;
+            sourceUrl = context.extraIp;
         } else if (ipSource === 'extraipProxy') {
-            basePadd = extraIpProxy;
+            sourceUrl = context.extraIpProxy;
         }
-        const raw = await fetchTextOrDefault(basePadd, '');
+        const raw = await fetchTextOrDefault(sourceUrl, '');
         const validIps = raw.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
             .map(l => {
                 const m = l.match(/(\d+\.\d+\.\d+\.\d+)/);
@@ -2020,83 +2293,8 @@ async function loadIpSource(ipSource, targetPort) {
     return sampleFromCidrs(cidrText, DEFAULT_TARGET_COUNT);
 }
 
-/** -------------------ips rtt kv-------------------------------- */
-async function cfKvRestPut(env, key, value) {
-    const namespaceId = getEnvVar("CF_NAMESPACE_ID", env);
-    const accountId = getEnvVar("CF_ACCOUNT_ID", env);
-    const email = getEnvVar("CF_EMAIL", env);
-    const apiKey = getEnvVar("CF_API_KEY", env);
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
-
-    const res = await fetch(url, {
-        method: "PUT",
-        headers: {
-            "X-Auth-Email": email,
-            "X-Auth-Key": apiKey,
-            "Content-Type": "text/plain"
-        },
-        body: value
-    });
-    const data = await res.json();
-    if (!data.success) {
-        throw new Error(JSON.stringify(data));
-    }
-}
-
-async function cfKvRestGet(env, key) {
-    const namespaceId = getEnvVar("CF_NAMESPACE_ID", env);
-    const accountId = getEnvVar("CF_ACCOUNT_ID", env);
-    const email = getEnvVar("CF_EMAIL", env);
-    const apiKey = getEnvVar("CF_API_KEY", env);
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
-
-    const res = await fetch(url, {
-        method: "GET",
-        headers: {
-            "X-Auth-Email": email,
-            "X-Auth-Key": apiKey
-        }
-    });
-    if (res.status === 404) return null;
-    return await res.text();
-}
-
-async function saveToKV(env, key, value) {
-    if (isCloudflareRuntime(env)) {
-        if (!env.ips || typeof env.ips.put !== "function") {
-            throw new Error("Cloudflare KV binding 'ips' not found");
-        }
-        await env.ips.put(key, value);
-    } else {
-        await cfKvRestPut(env, key, value);
-    }
-}
-
-async function loadFromKV(env, key) {
-    try {
-        if (isCloudflareRuntime(env)) {
-            if (!env.ips || typeof env.ips.get !== "function") {
-                return null;
-            }
-            return await env.ips.get(key);
-        }
-        return await cfKvRestGet(env, key);
-    } catch (e) {
-        return null;
-    }
-}
-
-async function appendToKV(env, key, appendText) {
-    const existing = await loadFromKV(env, key);
-    const existingArr = existing ? existing.split('\n').map(v => v.trim()).filter(v => v) : [];
-    const appendArr = appendText.split('\n').map(v => v.trim()).filter(v => v);
-    const mergedArr = Array.from(new Set([...existingArr, ...appendArr]));
-    const merged = mergedArr.join('\n');
-    return await saveToKV(env, key, merged);
-}
-
 /** -------------------ips rtt html-------------------------------- */
-function htmlPage() {
+function htmlPage(context) {
     const title = decodeBase64Utf8(fileName);
     const fullTitle = title + '-在线优选IP';
 
@@ -2401,6 +2599,7 @@ function htmlPage() {
         <div>
           <label>IP 源：
             <select id="ipSource">
+              <option value="auto">自动识别运营商</option>
               <option value="official">Cloudflare官方</option>
               <option value="13335">AS13335(CF)</option>
               <option value="209242">AS209242(CF London)</option>
@@ -2513,14 +2712,14 @@ function htmlPage() {
     </div>
     -->
 
-    <script>${pageLogic()}</script>
+    <script>${pageLogic(context)}</script>
   </body>
   </html>`;
 }
 
-function pageLogic() {
+function pageLogic(context) {
     return `
-    const extraValue = "${extraIp || ''}";
+    const extraValue = "${context.extraIp || ''}";
     if (extraValue) {
         const select = document.getElementById("ipSource");
         const option = document.createElement("option");
@@ -2529,7 +2728,7 @@ function pageLogic() {
         select.appendChild(option);
     }
 
-    const extraValueProxy = "${extraIpProxy || ''}";
+    const extraValueProxy = "${context.extraIpProxy || ''}";
     if (extraValueProxy) {
         const selectProxy = document.getElementById("proxySource");
         const optionProxy = document.createElement("option");
@@ -2700,7 +2899,7 @@ function pageLogic() {
     async function runTest(ip, port, timeout) {
       if (cancelRequested) return null;
       const nip = ip.split('.') .map(n => Number(n).toString(16).padStart(2, '0')).join('');
-      const url = 'https://' + nip + '.${nipHost}:' + port + '/cdn-cgi/trace?t=${Date.now()}';
+      const url = 'https://' + nip + '.${context.nipHost}:' + port + '/cdn-cgi/trace?t=${Date.now()}';
       const start = Date.now();
       const res = await fetchWithTimeout(url, timeout);
       if (!res || res.status !== 200) return null;
@@ -2843,7 +3042,7 @@ function pageLogic() {
       const textToSave = lines.join("\\n");
       const key = \`cf_\${ isProxy ? "proxy" : "normal" }_ip\`;
 
-      fetch('/${id}/save', {
+      fetch('/${context.id}/save', {
         method: "POST",
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2885,7 +3084,7 @@ function pageLogic() {
       });
       const key = \`cf_\${ isProxy ? "proxy" : "normal" }_ip\`;
       try {
-        const saveResp = await fetch('/${id}/append', {
+        const saveResp = await fetch('/${context.id}/append', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ key, items: lines.join('\\n') })
@@ -2905,7 +3104,7 @@ function pageLogic() {
     }
 
     function goHome() {
-        window.location.href = '/${id}';
+        window.location.href = '/${context.id}';
     }
 
      //🌐

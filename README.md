@@ -1,21 +1,13 @@
 ### 🚀[am-cf-tunnel-sub](https://github.com/amclubs/am-cf-tunnel-sub)
 基于Vercel、Cloudflare部署该脚本，你可以方便地将Cloudflare Workers 和 Pages的 VLESS、Trojan 配置信息使用在线配置转换到 Clash、 Singbox 、Quantumult X等工具中订阅使用。Cloudflare Workers 和 Pages 生成VLESS、Trojan节点,实现一键订阅节点。分离节点与订阅框架,更好解决Cloudfare部署时出现1101、522的问题。支持在线优选IP功能。 [最新视频教程](https://youtu.be/f8ZTvv4u3Pw)、[🎬 YouTube](https://youtube.com/@am_clubs?sub_confirmation=1)、 [💬 Telegram](https://t.me/am_clubs)、[📂 GitHub](https://github.com/amclubs)、[🌐 Blog](https://amclubss.com)
 
+> 完整的平台能力、路由兼容性、配置优先级和发布检查见 [兼容性与验证说明](docs/compatibility.md)。Vercel 支持订阅、后台和优选 IP，但 Cloudflare TCP/WebSocket/gRPC/XHTTP 转发仅在 Cloudflare Workers/Pages 上运行。
+
 ### ⚙️结合Coudflare部署免费节点项目 [am-cf-tunnel](https://github.com/amclubs/am-cf-tunnel) 与教程使用 [部署视频教程](https://youtu.be/e1Lvo5F37vk)
 - 本频道订阅器转换地址：https://sub.amclubss.com
 
 ### 👉 后期计划
 - 增加其它更多免费容器部署
-
-<div align="center" markdown="1">
-  <a href="https://doloffer.com/friend/xm5ydFi1">
-    <img alt="doloffer" style="width:900px;max-width:100%;height:300px;" src="example/doloffer_ad.jpg">
-  </a><br>
-  <a href="https://doloffer.com/friend/xm5ydFi1"><b>Doloffer🔥全网超划算的 ChatGPT Plus / Claude Pro 充值平台｜官方正版订阅｜独立账号・共享车位｜稳定续费・售后无忧｜低成本畅享顶级 AI 工具</b></a>
-</div>
-
-- 🎁专属9折优惠码：AI8888（全场通用）🔗 立即前往：👉 [Doloffer官方网站](https://doloffer.com/friend/xm5ydFi1) ｜ 📖 [Doloffer Guide](https://github.com/Doloffer-g/guide)
-
 
 ##
 ### 📝一、前期准备资料
@@ -82,13 +74,15 @@
 
 </details>
 
-#### `③` Cloudfare Pages 上传 部署方法 **(最佳推荐!!!)** [视频教程](https://www.youtube.com/watch?v=D4XqeRNm2JI&t=982s)
+#### `③` Cloudflare Pages Advanced Mode 部署
 <details>
 <summary>点击展开/收起</summary>
 
-1. 部署 Cloudflare Pages：
-   - 下载 [_worker.src.js.zip](https://raw.githubusercontent.com/amclubs/am-cf-tunnel-sub/main/_worker.src.js.zip) 文件，并点上 Star !!!
-   - 在 CloudFlare主页的左边菜单的 `计算(Workers)` 选项卡 -> 点击 `Workers 和 Pages` -> 右上方点击 -> `创建应用程序` -> 选择 `Pages`里的 `拖放文件` 点击 `开始使用` -> 填入 `项目名称`(此名称自己命名)后 -> 右边点击 `创建项目` 后 -> 下方 `上传您的项目资产` 点击 `拖放或从计算机中选择` 后  -> 点击 `上传压缩文件` 然后上传你下载好的 [_worker.src.js.zip](https://raw.githubusercontent.com/amclubs/am-cf-tunnel-sub/main/_worker.src.js.zip) 文件后点击 `部署站点`。
+1. 构建 Pages Advanced Mode 发布包：
+   - 克隆仓库后运行 `npm run package:pages`，或者下载 [_worker.src.js.zip](https://raw.githubusercontent.com/amclubs/am-cf-tunnel-sub/main/_worker.src.js.zip)。
+   - ZIP 内只有一个 Module Worker 文件 `_worker.js`。
+   - Cloudflare 当前不支持通过 Dashboard 的普通静态 Direct Upload 部署 Pages Functions；请使用 Git 集成或 Wrangler。
+   - Wrangler 示例：解压 ZIP 后执行 `npx wrangler pages deploy ./解压目录 --project-name=你的项目名 --compatibility-date=2026-09-19`。
 2. 设置节点UUID和HOST变量： 
    - 在 Pages控制台的 `设置` 选项卡 -> 点击 `设置` -> 左方点击 `变量和机密` -> 右方点击  `添加` -> 变量名称 填入 `UUID`(此名称固定不能变) ，值填入CF部署节点ID -> 再点击添加变量 填入 `HOST`(此名称固定不能变)，值填入CF部署的自定义域名 后 -> 右下方点击 `保存`。
    - 在 `设置` 选项卡，点击 `部署` -> 在所有部署 找到最新一条部署记录 ，在右边点击 3个点 `...` 选择 `重试部署` 即可。
@@ -147,7 +141,8 @@
 | ID   | ec872d8f-72b0-4a04-b612-0327d85e18ed（默认）|✅| 订阅器的登录密码 | |
 | UUID | ec872d8f-72b0-4a04-b612-0327d85e18ed |✅| 支持多节点(多个之间`,`作间隔) Cloudflare部署节点的ID变量值[在线获取UUID](https://1024tools.com/uuid)   |  |
 | HOST | vless.amclubss.com |✅| 支持多节点(多个之间`,`作间隔) Cloudflare部署节点的域名或自定域名 | |
-| PROT_TYPE        | 默认空          |❌|  默认空,支持多节点(多个之间`,`作间隔) 就是生成vless和trojan节点，vless(只生成vless节点)，trojan(只生成trojan节点)           | [视频教程](https://www.youtube.com/watch?v=emEBm8Gw2wI&t=922s) |
+| PROT_TYPE        | 默认空          |❌| 默认空时生成 VLESS 和 Trojan；支持多节点（多个之间用`,`分隔），可指定 `vless`、`trojan` 或 `ss` | [视频教程](https://www.youtube.com/watch?v=emEBm8Gw2wI&t=922s) |
+| SS_METHOD        | aes-128-gcm     |❌| `PROT_TYPE=ss` 时使用的 Shadowsocks 加密方式 | |
 | IP_URL           | [https://raw.github.../ipUrl.txt](https://raw.githubusercontent.com/amclubs/am-cf-tunnel/main/example/ipUrl.txt) </br>或</br> [https://raw.github.../ipv4.txt](https://raw.githubusercontent.com/amclubs/am-cf-tunnel/main/example/ipv4.txt) |❌| （推荐）优选(ipv4、ipv6、域名、API)地址(支持多个之间`,`或 换行 作间隔)，支持文件连接后里带PROXYIP参数，可以实现不同区域优先IP使用不同的PROXYIP固定区域，解决IP乱跳问题  | [KV存储教程](https://youtu.be/dzxezRV1v-o)[GitHub存储教程](https://youtu.be/vX3U3FuuTT8)[使用教程](https://www.youtube.com/watch?v=4fcyJjstFdg&t=349s)|
 | PROXYIP          | proxyip.amclubs.kozow.com </br>或</br> [https://raw.github.../proxyip.txt](https://raw.githubusercontent.com/amclubs/am-cf-tunnel/main/example/proxyip.txt)  |❌| 访问CloudFlare的CDN代理节点(支持多PROXYIP, PROXYIP之间使用`,`或 换行 作间隔),支持端口设置默认443 如: proxyip.amclubs.kozow.com:2053 ，支持远程txt或csv文件| [视频教程](https://youtu.be/pKrlfRRB0gU) |
 | SOCKS5           | user:password@127.0.0.1:1080         |❌| 优先作为访问CFCDN站点的SOCKS5代理                                                   | [视频教程](https://youtu.be/Bw82BH_ecC4) |
@@ -158,10 +153,31 @@
 | NIP_HOST | 553558.xyz(默认) |❌| 优先IP时需要的nip服务 | |
 | EXTRA_IP | [https://raw.github.../ipv4.txt](https://raw.githubusercontent.com/amclubs/am-cf-tunnel/main/example/ipv4.txt) |❌| 优先IP时需要的nip服务 | |
 | EXTRA_IP_PROXY | [https://raw.github.../proxyip_am.txt](https://raw.githubusercontent.com/amclubs/am-cf-tunnel/main/example/proxyip_am.txt) |❌| 优先IP时需要的nip服务 | |
+| CARRIER_IP_URL_CT | URL |❌| 中国电信自动优选所使用的 CIDR/IP 数据源 | |
+| CARRIER_IP_URL_CU | URL |❌| 中国联通自动优选所使用的 CIDR/IP 数据源 | |
+| CARRIER_IP_URL_CMCC | URL |❌| 中国移动自动优选所使用的 CIDR/IP 数据源 | |
+| CARRIER_IP_URL_CF | URL |❌| 其他网络自动优选所使用的 CIDR/IP 数据源 | |
 | CF_NAMESPACE_ID  | 37cf3x8xxx(Vercel方式部署才需求)     |❌ | 优先IP时需要CF的KV存桶ID（存储和数据库->Workers KV->创建的命名空间ID）        ||
 | CF_ACCOUNT_ID    | 0b0e49ba2xxxx(Vercel方式部署才需求)  |❌ | 优先IP时需要CF的帐号ID（计算和AI->Account Details->Account ID）         ||
 | CF_EMAIL         | xxx@gmail.com(Vercel方式部署才需求)  |❌ | 优先IP时需要CF的帐号邮箱        ||
 | CF_API_KEY       | 49ba2xxxx(Vercel方式部署才需求)      |❌ | 优先IP时需要CF的API令牌（管理帐户->帐户API令牌->创建的令牌D）          ||
+
+### 后台管理
+
+- 使用原有 `ID` 登录 `/login` 后会建立有效期 24 小时的安全会话，同时继续跳转到原有 `/{ID}` 页面。
+- `/admin` 提供本地后台配置页面；配置保存到 KV 的 `config/v1` 键。
+- 环境变量和订阅 URL 查询参数优先级高于后台保存的配置，因此不会覆盖现有部署设置。
+- `/admin/ip/normal` 和 `/admin/ip/proxy` 提供受登录保护的优选 IP 管理接口，并同步维护原有 `cf_normal_ip`、`cf_proxy_ip` 键。
+- 原有 `/{ID}`、`/{ID}/setting`、`/{ID}/ips`、save、append、load 路由继续保留。
+
+### Cloudflare 专用转发层
+
+- WebSocket Upgrade 请求会进入 VLESS over WebSocket 转发层，并使用 `UUID` 校验首包。
+- `Content-Type: application/grpc` 的 POST 请求进入 VLESS gRPC 转发层。
+- 带 `X-Amclubs-Transport: xhttp` 请求头或 `?transport=xhttp` 的 POST 请求进入 VLESS HTTP 转发层。
+- TCP 目标仅允许公网地址，拒绝本机、内网、链路本地地址以及 25 端口。
+- UDP 仅支持 DNS 53 端口，并通过 DNS-over-HTTPS 转发。
+- 上述转发能力只在 Cloudflare Workers 运行；Vercel 对相应请求返回 `501`，订阅、后台和优选 IP 功能不受影响。
 
 - 本频道订阅器转换地址：https://sub.amclubss.com
   

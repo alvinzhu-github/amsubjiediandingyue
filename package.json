@@ -3,6 +3,10 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "start": "vercel dev"
+        "build:worker": "node scripts/build-worker.mjs",
+        "package:pages": "npm run build:worker && node scripts/package-pages.mjs",
+        "pretest": "npm run build:worker",
+        "start": "vercel dev",
+        "test": "node tests/run.mjs"
     }
 }
